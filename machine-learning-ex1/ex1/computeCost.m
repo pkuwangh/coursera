@@ -15,8 +15,7 @@ J = 0;
 
 hx = X * theta;
 delta = hx - y;
-dev = dot(delta, delta);
-J = dev / (2*m);
+J = dot(delta, delta) / (2*m);
 
 % =========================================================================
 

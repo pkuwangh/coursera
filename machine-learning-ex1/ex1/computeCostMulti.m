@@ -13,9 +13,9 @@ J = 0;
 % Instructions: Compute the cost of a particular choice of theta
 %               You should set J to the cost.
 
-
-
-
+hx = X * theta;
+delta = hx - y;
+J = dot(delta, delta) / (2*m);
 
 % =========================================================================
 
