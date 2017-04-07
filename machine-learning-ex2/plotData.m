@@ -12,16 +12,13 @@ figure; hold on;
 %               examples and 'ko' for the negative examples.
 %
 
+passed = find(y == 1);
+failed = find(y == 0);
 
-
-
-
-
-
-
+plot(X(passed, 1), X(passed, 2), 'k+', 'LineWidth', 2, 'MarkerSize', 8);
+plot(X(failed, 1), X(failed, 2), 'ko', 'MarkerFaceColor', 'y', 'MarkerSize', 8);
 
 % =========================================================================
-
 
 
 hold off;
