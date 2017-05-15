@@ -4,8 +4,8 @@ function p = predict(Theta1, Theta2, X)
 %   trained weights of a neural network (Theta1, Theta2)
 
 % Useful values
-m = size(X, 1);
-num_labels = size(Theta2, 1);
+m = size(X, 1);                 % m input data sets
+num_labels = size(Theta2, 1);   % number of classes
 
 % You need to return the following variables correctly 
 p = zeros(size(X, 1), 1);
@@ -21,13 +21,16 @@ p = zeros(size(X, 1), 1);
 %       can use max(A, [], 2) to obtain the max for each row.
 %
 
+% input layer
+a1 = [ones(m, 1) X];
+% second layer, hidden layer
+z2 = a1 * Theta1';
+a2 = [ones(m, 1)  sigmoid(z2)];
+% output layer
+z3 = a2 * Theta2';
+a3 = sigmoid(z3);
 
-
-
-
-
-
-
+[pmax, p] = max(a3, [], 2);
 
 % =========================================================================
 
