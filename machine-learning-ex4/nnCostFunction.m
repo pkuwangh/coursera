@@ -38,7 +38,32 @@ Theta2_grad = zeros(size(Theta2));
 %         variable J. After implementing Part 1, you can verify that your
 %         cost function computation is correct by verifying the cost
 %         computed in ex4.m
-%
+
+% input layer
+a1 = [ones(m, 1) X];
+% hidden layer
+z2 = a1 * Theta1';
+a2 = sigmoid(z2);
+a2 = [ones(size(a2, 1), 1) a2];
+% output layer
+z3 = a2 * Theta2';
+a3 = sigmoid(z3);
+h = a3;
+% output binarization
+yVec = zeros(m, num_labels);
+for i = 1 : m
+    yVec(i, y(i)) = 1;
+end
+% cost function
+for i = 1 : m
+    J1 = - yVec(i, :) .* log(h(i, :));
+    J2 = - (1 - yVec(i, :)) .* log(1 - h(i, :));
+    J = J + sum(J1+J2);
+end
+%% regularization
+regulator = sum(sum(Theta1(:, 2:end).^2)) + sum(sum(Theta2(:, 2:end).^2));
+J = J/m + lambda / (2*m) * regulator;
+
 % Part 2: Implement the backpropagation algorithm to compute the gradients
 %         Theta1_grad and Theta2_grad. You should return the partial derivatives of
 %         the cost function with respect to Theta1 and Theta2 in Theta1_grad and
@@ -53,32 +78,33 @@ Theta2_grad = zeros(size(Theta2));
 %         Hint: We recommend implementing backpropagation using a for-loop
 %               over the training examples if you are implementing it for the 
 %               first time.
-%
+
+
+for i = 1 : m
+    % forward propagation already done
+    a1 = [1; X(i, :)'];
+    z2 = Theta1 * a1;
+    a2 = [1; sigmoid(z2)];
+    z3 = Theta2 * a2;
+    a3 = sigmoid(z3);
+    % delta terms
+    delta_3 = a3 - yVec(i, :)';
+    delta_2 = (Theta2' * delta_3) .* [1; sigmoidGradient(z2)];
+    delta_2 = delta_2(2:end);
+    % big delta accumulation
+    Theta1_grad = Theta1_grad + delta_2 * a1';
+    Theta2_grad = Theta2_grad + delta_3 * a2';
+end
+
+Theta1_grad = (1/m) * Theta1_grad + (lambda/m) * ([zeros(size(Theta1, 1), 1) Theta1(:, 2:end)]);
+Theta2_grad = (1/m) * Theta2_grad + (lambda/m) * ([zeros(size(Theta2, 1), 1) Theta2(:, 2:end)]);
+
 % Part 3: Implement regularization with the cost function and gradients.
 %
 %         Hint: You can implement this around the code for
 %               backpropagation. That is, you can compute the gradients for
 %               the regularization separately and then add them to Theta1_grad
 %               and Theta2_grad from Part 2.
-%
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 % -------------------------------------------------------------
 
