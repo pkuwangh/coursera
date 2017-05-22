@@ -53,11 +53,13 @@ error_val   = zeros(m, 1);
 
 % ---------------------- Sample Solution ----------------------
 
-
-
-
-
-
+for i = 1 : m
+    [theta] = trainLinearReg(X(1:i, :), y(1:i), lambda);
+    delta_train = X(1:i, :) * theta - y(1:i);
+    delta_val = Xval * theta - yval;
+    error_train(i) = dot(delta_train, delta_train) / (2*i);
+    error_val(i) = dot(delta_val, delta_val) / (2*length(yval));
+end
 
 % -------------------------------------------------------------
 
