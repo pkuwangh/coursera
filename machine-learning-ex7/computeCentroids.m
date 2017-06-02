@@ -26,12 +26,11 @@ centroids = zeros(K, n);
 % Note: You can use a for-loop over the centroids to compute this.
 %
 
-
-
-
-
-
-
+for i = 1 : K
+    % go over each cluster
+    rows_in_cluster = (idx == i);
+    centroids(i, :) = sum(X(rows_in_cluster, :)) / sum(rows_in_cluster);
+end
 
 % =============================================================
 
