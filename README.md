@@ -1,1 +1,1 @@
-# coursera_ml
+Coursera Machine Learning by Andrew Ng
