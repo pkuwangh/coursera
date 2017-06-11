@@ -51,4 +51,4 @@ Message.o: Message.cpp Message.h Member.h common.h
 	g++ -c Message.cpp ${CFLAGS}
 
 clean:
-	rm -rf *.o Application dbg.log msgcount.log stats.log machine.log
+	rm -rf *.o Application dbg.log dbg.*.log msgcount.log stats.log machine.log

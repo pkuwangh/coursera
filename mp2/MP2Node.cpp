@@ -3,6 +3,7 @@
  *
  * DESCRIPTION: MP2Node class definition
  **********************************/
+#include <cassert>
 #include "MP2Node.h"
 
 /**
@@ -15,6 +16,7 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	this->log = log;
 	ht = new HashTable();
 	this->memberNode->addr = *address;
+    this->initialized = true;
 }
 
 /**
@@ -39,7 +41,6 @@ void MP2Node::updateRing() {
 	 * Implement this. Parts of it are already implemented
 	 */
 	vector<Node> curMemList;
-	//bool change = false;
 
 	/*
 	 *  Step 1. Get the current membership list from Membership Protocol / MP1
@@ -52,11 +53,13 @@ void MP2Node::updateRing() {
 	// Sort the list based on the hashCode
 	sort(curMemList.begin(), curMemList.end());
 
+    // wangh
+    ring = curMemList;
 
 	/*
 	 * Step 3: Run the stabilization protocol IF REQUIRED
 	 */
-	// Run stabilization protocol if the hash table size is greater than zero and if there has been a changed in the ring
+    stabilizationProtocol();
 }
 
 /**
@@ -65,7 +68,7 @@ void MP2Node::updateRing() {
  * DESCRIPTION: This function goes through the membership list from the Membership protocol/MP1 and
  * 				i) generates the hash code for each member
  * 				ii) populates the ring member in MP2Node class
- * 				It returns a vector of Nodes. Each element in the vector contain the following fields:
+ * 				It returns a vector of Nodes. Each element contain the following fields:
  * 				a) Address of the node
  * 				b) Hash code obtained by consistent hashing of the Address
  */
@@ -98,6 +101,41 @@ size_t MP2Node::hashFunction(string key) {
 	return ret%RING_SIZE;
 }
 
+void MP2Node::unicast(KVStoreMessage kvMsg, Address& toAddr) {
+    Address* fromAddr = &(this->memberNode->addr);
+    char* msgStr = const_cast<char*>(kvMsg.toString().c_str());
+    this->emulNet->ENsend(fromAddr, &toAddr, msgStr, strlen(msgStr));
+}
+
+void MP2Node::multicast(KVStoreMessage kvMsg, vector<Node>& toNodes) {
+    Address* fromAddr = &(this->memberNode->addr);
+    for (uint32_t i = 0; i < toNodes.size(); ++i) {
+        char* msgStr = const_cast<char*>(kvMsg.toString().c_str());
+        this->emulNet->ENsend(fromAddr, &(toNodes[i].nodeAddress), msgStr, strlen(msgStr));
+    }
+}
+
+void MP2Node::updateInflightTrans() {
+    auto iter = inflightTrans.begin();
+    while (iter != inflightTrans.end()) {
+        if ( (par->getcurrtime() - iter->lTimeStamp) > TIMEOUT_THD ) {
+            auto l_addr = this->memberNode->addr;
+            auto l_id = iter->gTransId;
+            auto l_key = iter->key;
+            auto l_val = iter->val.second;
+            // timeout
+            switch(iter->transType) {
+                case MessageType::CREATE: log->logCreateFail(&l_addr, true, l_id, l_key, l_val); break;
+                case MessageType::DELETE: log->logDeleteFail(&l_addr, true, l_id, l_key); break;
+                default: break;
+            }
+            inflightTrans.erase(iter++);
+        } else {
+            ++iter;
+        }
+    }
+}
+
 /**
  * FUNCTION NAME: clientCreate
  *
@@ -108,9 +146,23 @@ size_t MP2Node::hashFunction(string key) {
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientCreate(string key, string value) {
-	/*
-	 * Implement this
-	 */
+    // wangh
+    ++ g_transID;
+    // find replicas
+    vector<Node> nodes = findNodes(key);
+    assert(nodes.size() == NUM_REPLICAS);
+    // construct and send messages
+    Address* fromAddr = &(this->memberNode->addr);
+    for (uint32_t i = 0; i < nodes.size(); ++i) {
+        KVStoreMessage newMsg (
+                KVStoreMessage::QUERY,
+                Message(g_transID, *fromAddr, MessageType::CREATE, key, value,
+                        static_cast<ReplicaType>(i)) );
+        unicast(newMsg, nodes[i].nodeAddress);
+    }
+    // logging
+    Transaction tran(g_transID, par->getcurrtime(), QUORUM_THD, MessageType::CREATE, key, value);
+    inflightTrans.push_front(tran);
 }
 
 /**
@@ -123,9 +175,17 @@ void MP2Node::clientCreate(string key, string value) {
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientRead(string key){
-	/*
-	 * Implement this
-	 */
+    // wangh
+    ++ g_transID;
+    vector<Node> nodes = findNodes(key);
+    assert(nodes.size() == NUM_REPLICAS);
+    KVStoreMessage newMsg (
+            KVStoreMessage::QUERY,
+            Message(g_transID, this->memberNode->addr, MessageType::READ, key) );
+    multicast(newMsg, nodes);
+    // logging
+    Transaction tran(g_transID, par->getcurrtime(), QUORUM_THD, MessageType::READ, key, "");
+    inflightTrans.push_front(tran);
 }
 
 /**
@@ -138,9 +198,21 @@ void MP2Node::clientRead(string key){
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientUpdate(string key, string value){
-	/*
-	 * Implement this
-	 */
+    // wangh
+    ++ g_transID;
+    vector<Node> nodes = findNodes(key);
+    assert(nodes.size() == NUM_REPLICAS);
+    Address* fromAddr = &(this->memberNode->addr);
+    for (uint32_t i = 0; i < nodes.size(); ++i) {
+        KVStoreMessage newMsg (
+                KVStoreMessage::QUERY,
+                Message(g_transID, *fromAddr, MessageType::UPDATE, key, value,
+                        static_cast<ReplicaType>(i)) );
+        unicast(newMsg, nodes[i].nodeAddress);
+    }
+    // logging
+    Transaction tran(g_transID, par->getcurrtime(), QUORUM_THD, MessageType::UPDATE, key, value);
+    inflightTrans.push_front(tran);
 }
 
 /**
@@ -152,10 +224,18 @@ void MP2Node::clientUpdate(string key, string value){
  * 				2) Finds the replicas of this key
  * 				3) Sends a message to the replica
  */
-void MP2Node::clientDelete(string key){
-	/*
-	 * Implement this
-	 */
+void MP2Node::clientDelete(string key) {
+    // wangh
+    ++ g_transID;
+    vector<Node> nodes = findNodes(key);
+    assert(nodes.size() == NUM_REPLICAS);
+    KVStoreMessage newMsg (
+            KVStoreMessage::QUERY,
+            Message(g_transID, this->memberNode->addr, MessageType::DELETE, key) );
+    multicast(newMsg, nodes);
+    // logging
+    Transaction tran(g_transID, par->getcurrtime(), QUORUM_THD, MessageType::DELETE, key, "");
+    inflightTrans.push_front(tran);
 }
 
 /**
@@ -167,10 +247,10 @@ void MP2Node::clientDelete(string key){
  * 			   	2) Return true or false based on success or failure
  */
 bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
-	/*
-	 * Implement this
-	 */
+    // wangh
 	// Insert key, value, replicaType into the hash table
+    Entry newEntry(value, par->getcurrtime(), replica);
+    keyEntryMap.insert(make_pair(key, newEntry));
     return true;
 }
 
@@ -215,11 +295,12 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
  * 				2) Return true or false based on success or failure
  */
 bool MP2Node::deletekey(string key) {
-	/*
-	 * Implement this
-	 */
+    // wangh
 	// Delete the key from the local hash table
-    return true;
+    if (keyEntryMap.erase(key))
+        return true;
+    else
+        return false;
 }
 
 /**
@@ -231,16 +312,8 @@ bool MP2Node::deletekey(string key) {
  * 				2) Handles the messages according to message types
  */
 void MP2Node::checkMessages() {
-	/*
-	 * Implement this. Parts of it are already implemented
-	 */
 	char * data;
 	int size;
-
-	/*
-	 * Declare your local variables here
-	 */
-
 	// dequeue all messages and handle them
 	while ( !memberNode->mp2q.empty() ) {
 		/*
@@ -252,10 +325,9 @@ void MP2Node::checkMessages() {
 
 		string message(data, data + size);
 
-		/*
-		 * Handle the message types here
-		 */
-
+        // wangh
+        KVStoreMessage newMsg(message);
+        dispatchMessages(newMsg);
 	}
 
 	/*
@@ -306,6 +378,9 @@ bool MP2Node::recvLoop() {
     	return false;
     }
     else {
+        // check timeout-ed transaction
+        updateInflightTrans();
+        // receiving messages
     	return emulNet->ENrecv(&(memberNode->addr), this->enqueueWrapper, NULL, 1, &(memberNode->mp2q));
     }
 }
@@ -319,6 +394,88 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
 	Queue q;
 	return q.enqueue((queue<q_elt> *)env, (void *)buff, size);
 }
+
+void MP2Node::dispatchMessages(KVStoreMessage kvMsg) {
+    // wangh
+    if (kvMsg.kvMsgType == KVStoreMessage::QUERY) {
+        switch(kvMsg.type) {
+            // server side
+            case MessageType::CREATE: handleKeyCreate(kvMsg); break;
+            case MessageType::DELETE: handleKeyDelete(kvMsg); break;
+            // client side
+            case MessageType::REPLY: handleReply(kvMsg); break;
+            default: break;
+        }
+
+    } else if (kvMsg.kvMsgType == KVStoreMessage::UPDATE) {
+    } else {
+        // corrupted packet
+        return;
+    }
+}
+
+void MP2Node::handleReply(Message msg) {
+    auto l_id = msg.transID;
+    list<Transaction>::iterator iter;
+    for (iter = inflightTrans.begin(); iter != inflightTrans.end(); ++iter) {
+        if (iter->gTransId == l_id) {
+            break;
+        }
+    }
+    if (iter == inflightTrans.end()) {
+        // transaction has been dropped due to timeout
+        return;
+    } else if (!msg.success) {
+        // operation failed
+        return;
+    } else if (--(iter->quorum_count) == 0) {
+        switch(iter->transType) {
+            case MessageType::CREATE: log->logCreateSuccess(&memberNode->addr, true, l_id, iter->key, iter->val.second); break;
+            case MessageType::DELETE: log->logDeleteSuccess(&memberNode->addr, true, l_id, iter->key); break;
+            default: break;
+        }
+        inflightTrans.erase(iter);
+        return;
+    } else {
+        return;
+    }
+}
+
+void MP2Node::handleKeyCreate(Message msg) {
+    auto l_id = msg.transID;
+    auto l_addr = this->memberNode->addr;
+    auto l_key = msg.key;
+    auto l_value = msg.value;
+    KVStoreMessage retMsg (
+            KVStoreMessage::QUERY, Message(l_id, l_addr, MessageType::REPLY, false) );
+
+    if (createKeyValue(l_key, l_value, msg.replica)) {
+        retMsg.success = true;
+        log->logCreateSuccess(&l_addr, false, l_id, l_key, l_value);
+    } else {
+        retMsg.success = false;
+        log->logCreateFail(&l_addr, false, l_id, l_key, l_value);
+    }
+    unicast(retMsg, msg.fromAddr);
+}
+
+void MP2Node::handleKeyDelete(Message msg) {
+    auto l_id = msg.transID;
+    auto l_addr = this->memberNode->addr;
+    auto l_key = msg.key;
+    KVStoreMessage retMsg (
+            KVStoreMessage::QUERY, Message(l_id, l_addr, MessageType::REPLY, false) );
+
+    if (deletekey(l_key)) {
+        retMsg.success = true;
+        log->logDeleteSuccess(&l_addr, false, l_id, l_key);
+    } else {
+        retMsg.success = false;
+        log->logDeleteFail(&l_addr, false, l_id, l_key);
+    }
+    unicast(retMsg, msg.fromAddr);
+}
+
 /**
  * FUNCTION NAME: stabilizationProtocol
  *

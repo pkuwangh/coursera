@@ -18,6 +18,74 @@
 #include "Params.h"
 #include "Message.h"
 #include "Queue.h"
+#include <list>
+
+#define NUM_REPLICAS 3
+#define QUORUM_THD (NUM_REPLICAS/2+1)
+#define TIMEOUT_THD 20
+
+/** CLASS NAME: KVStoreMessage
+ *
+ * DESCRIPTION: This class extends Message to facilitate replica management
+ */
+class KVStoreMessage : public Message {
+  public:
+    enum KVStoreMessageType {
+        UPDATE,
+        QUERY
+    };
+
+    static string stripKVHeader(string message) {
+        int pos = message.find('@');
+        return message.substr(pos+1);
+    }
+
+    KVStoreMessage(string message) :
+        Message(stripKVHeader(message))
+    {
+        int header = stoi(message.substr(0, message.find('@')));
+        kvMsgType = static_cast<KVStoreMessageType>(header);
+    }
+
+    KVStoreMessage(KVStoreMessageType kv_type, string message) :
+        Message(message),
+        kvMsgType(kv_type)
+    { }
+
+    KVStoreMessage(KVStoreMessageType kv_type, const Message& message) :
+        Message(message),
+        kvMsgType(kv_type)
+    { }
+
+    string toString() {
+        return to_string(kvMsgType) + '@' + Message::toString();
+    }
+
+    KVStoreMessageType kvMsgType;
+};
+
+/** CLASS NAME: Transaction
+ *
+ * DESCRIPTION: This class includes transaction information
+ */
+class Transaction {
+  public:
+    int gTransId;           // global transaction id
+    int lTimeStamp;         // local timestamp
+    int quorum_count;       // required quorum count
+    MessageType transType;  //
+    string key;
+    pair<int, string> val;
+
+    Transaction(int g_id, int l_ts, int x_qc, MessageType x_type, string x_key, string x_val) :
+        gTransId(g_id),
+        lTimeStamp(l_ts),
+        quorum_count(x_qc),
+        transType(x_type),
+        key(x_key),
+        val(make_pair(0, x_val))
+    { }
+};
 
 /**
  * CLASS NAME: MP2Node
@@ -48,6 +116,26 @@ private:
 	// Object of Log
 	Log * log;
 
+    list<Transaction> inflightTrans;
+    map<string, Entry> keyEntryMap;
+    bool initialized;
+
+    // client side message handler
+    void handleReadReply(Message msg);
+    void handleReply(Message msg);
+    // server side message handler
+    void handleKeyCreate(Message msg);
+    void handleKeyUpdate(Message msg);
+    void handleKeyDelete(Message msg);
+    void handleKeyRead(Message msg);
+    // transactions
+    void unicast(KVStoreMessage kvMsg, Address& toAddr);
+    void multicast(KVStoreMessage kvMsg, vector<Node>& toNodes);
+    void updateInflightTrans();
+    // stabilization protocol
+    void handleReplicate(ReplicaType repType, Node& toNode);
+    void handleReplicateUpdate(Message msg, vector<Node>& toNodes);
+
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
 	Member * getMemberNode() {
@@ -74,7 +162,7 @@ public:
 	void checkMessages();
 
 	// coordinator dispatches messages to corresponding nodes
-	void dispatchMessages(Message message);
+	void dispatchMessages(KVStoreMessage kvMsg);
 
 	// find the addresses of nodes that are responsible for a key
 	vector<Node> findNodes(string key);
