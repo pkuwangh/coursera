@@ -129,6 +129,7 @@ void MP2Node::updateInflightTrans() {
                 case MessageType::CREATE: log->logCreateFail(&l_addr, true, l_id, l_key, l_val); break;
                 case MessageType::DELETE: log->logDeleteFail(&l_addr, true, l_id, l_key); break;
                 case MessageType::READ: log->logReadFail(&l_addr, true, l_id, l_key); break;
+                case MessageType::UPDATE: log->logUpdateFail(&l_addr, true, l_id, l_key, l_val); break;
                 default: break;
             }
             inflightTrans.erase(iter++);
@@ -284,11 +285,16 @@ string MP2Node::readKey(string key) {
  * 				2) Return true or false based on success or failure
  */
 bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
-	/*
-	 * Implement this
-	 */
-	// Update key in local hash table and return true or false
-    return true;
+    // wangh
+    // Update key in local hash table and return true or false
+    Entry newEntry(value, par->getcurrtime(), replica);
+    auto iter = keyEntryMap.find(key);
+    if (iter != keyEntryMap.end()) {
+        keyEntryMap.insert(make_pair(key, newEntry));
+        return true;
+    } else {
+        return false;
+    }
 }
 
 /**
@@ -408,6 +414,7 @@ void MP2Node::dispatchMessages(KVStoreMessage kvMsg) {
             case MessageType::CREATE: handleKeyCreate(kvMsg); break;
             case MessageType::DELETE: handleKeyDelete(kvMsg); break;
             case MessageType::READ: handleKeyRead(kvMsg); break;
+            case MessageType::UPDATE: handleKeyUpdate(kvMsg); break;
             // client side
             case MessageType::REPLY: handleReply(kvMsg); break;
             case MessageType::READREPLY: handleReadReply(kvMsg); break;
@@ -439,6 +446,7 @@ void MP2Node::handleReply(Message msg) {
         switch(iter->transType) {
             case MessageType::CREATE: log->logCreateSuccess(&memberNode->addr, true, l_id, iter->key, iter->val.second); break;
             case MessageType::DELETE: log->logDeleteSuccess(&memberNode->addr, true, l_id, iter->key); break;
+            case MessageType::UPDATE: log->logUpdateSuccess(&memberNode->addr, true, l_id, iter->key, iter->val.second); break;
             default: break;
         }
         inflightTrans.erase(iter);
@@ -496,6 +504,22 @@ void MP2Node::handleKeyCreate(Message msg) {
     } else {
         retMsg.success = false;
         log->logCreateFail(&l_addr, false, l_id, l_key, l_value);
+    }
+    unicast(retMsg, msg.fromAddr);
+}
+
+void MP2Node::handleKeyUpdate(Message msg) {
+    auto l_id = msg.transID;
+    auto l_addr = this->memberNode->addr;
+    auto l_key = msg.key;
+    KVStoreMessage retMsg (
+            KVStoreMessage::QUERY, Message(l_id, l_addr, MessageType::REPLY, false) );
+    if (updateKeyValue(l_key, msg.value, msg.replica)) {
+        retMsg.success = true;
+        log->logUpdateSuccess(&l_addr, false, l_id, l_key, msg.value);
+    } else {
+        retMsg.success = false;
+        log->logUpdateFail(&l_addr, false, l_id, l_key, msg.value);
     }
     unicast(retMsg, msg.fromAddr);
 }
