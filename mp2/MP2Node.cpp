@@ -16,7 +16,8 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	this->log = log;
 	ht = new HashTable();
 	this->memberNode->addr = *address;
-    this->initialized = true;
+    // need initialize ring
+    this->initialized = false;
 }
 
 /**
@@ -127,6 +128,7 @@ void MP2Node::updateInflightTrans() {
             switch(iter->transType) {
                 case MessageType::CREATE: log->logCreateFail(&l_addr, true, l_id, l_key, l_val); break;
                 case MessageType::DELETE: log->logDeleteFail(&l_addr, true, l_id, l_key); break;
+                case MessageType::READ: log->logReadFail(&l_addr, true, l_id, l_key); break;
                 default: break;
             }
             inflightTrans.erase(iter++);
@@ -263,11 +265,14 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
  * 			    2) Return value
  */
 string MP2Node::readKey(string key) {
-	/*
-	 * Implement this
-	 */
+    // wangh
 	// Read key from local hash table and return value
-    return "";
+    auto iter = keyEntryMap.find(key);
+    if (iter != keyEntryMap.end()) {
+        return iter->second.convertToString();
+    } else {
+        return "";
+    }
 }
 
 /**
@@ -402,12 +407,14 @@ void MP2Node::dispatchMessages(KVStoreMessage kvMsg) {
             // server side
             case MessageType::CREATE: handleKeyCreate(kvMsg); break;
             case MessageType::DELETE: handleKeyDelete(kvMsg); break;
+            case MessageType::READ: handleKeyRead(kvMsg); break;
             // client side
             case MessageType::REPLY: handleReply(kvMsg); break;
+            case MessageType::READREPLY: handleReadReply(kvMsg); break;
             default: break;
         }
-
     } else if (kvMsg.kvMsgType == KVStoreMessage::UPDATE) {
+        handleReplicateUpdate(kvMsg);
     } else {
         // corrupted packet
         return;
@@ -438,6 +445,40 @@ void MP2Node::handleReply(Message msg) {
         return;
     } else {
         return;
+    }
+}
+
+void MP2Node::handleReadReply(Message msg) {
+    // extract message
+    string value = msg.value;
+    if (value.empty()) return;
+    vector<string> tuple;
+    int start = 0, pos = 0;
+    while ((pos = value.find(":", start)) != (int)string::npos) {
+        string token = value.substr(start, pos-start);
+        tuple.push_back(token);
+        start = pos + 1;
+    }
+    tuple.push_back(value.substr(start));
+    assert(tuple.size() == 3);
+    string retVal = tuple[0];
+    int timestamp = stoi(tuple[1]);
+    int l_id = msg.transID;
+    auto iter = inflightTrans.begin();
+    for ( ; iter != inflightTrans.end(); ++iter) {
+        if (iter->gTransId == l_id) break;
+    }
+
+    if (iter == inflightTrans.end()) {
+        // transaction has been dropped due to timeout
+        return;
+    } else if (--(iter->quorum_count) == 0) {
+        log->logReadSuccess(&memberNode->addr, true, l_id, iter->key, iter->val.second);
+        inflightTrans.erase(iter);
+    } else {
+        if (timestamp >= iter->val.first) {
+            iter->val = make_pair(timestamp, retVal);
+        }
     }
 }
 
@@ -476,6 +517,37 @@ void MP2Node::handleKeyDelete(Message msg) {
     unicast(retMsg, msg.fromAddr);
 }
 
+void MP2Node::handleKeyRead(Message msg) {
+    auto l_id = msg.transID;
+    auto l_addr = this->memberNode->addr;
+    auto l_key = msg.key;
+    // read
+    string retVal = readKey(l_key);
+    if (retVal.empty()) {
+        log->logReadFail(&l_addr, false, l_id, l_key);
+    } else {
+        log->logReadSuccess(&l_addr, false, l_id, l_key, retVal);
+    }
+    KVStoreMessage retMsg(KVStoreMessage::QUERY, Message(l_id, l_addr, retVal));
+    unicast(retMsg, msg.fromAddr);
+}
+
+void MP2Node::handleReplicate(ReplicaType repType, Node& toNode) {
+    for (auto iter = keyEntryMap.begin(); iter != keyEntryMap.end(); ++iter) {
+        if (iter->second.replica == repType) {
+            KVStoreMessage newMsg (
+                    KVStoreMessage::UPDATE,
+                    Message(-1, memberNode->addr, MessageType::CREATE, iter->first,
+                        iter->second.value, ReplicaType::TERTIARY) );
+            unicast(newMsg, toNode.nodeAddress);
+        }
+    }
+}
+
+void MP2Node::handleReplicateUpdate(Message msg) {
+    createKeyValue(msg.key, msg.value, msg.replica);
+}
+
 /**
  * FUNCTION NAME: stabilizationProtocol
  *
@@ -486,7 +558,47 @@ void MP2Node::handleKeyDelete(Message msg) {
  *				Note:- "CORRECT" replicas implies that every key is replicated in its two neighboring nodes in the ring
  */
 void MP2Node::stabilizationProtocol() {
-	/*
-	 * Implement this
-	 */
+    // wangh
+    unsigned int idx = 0;
+    // find myself in the ring
+    for (idx = 0; idx < ring.size(); ++idx) {
+        if (ring[idx].nodeAddress == this->memberNode->addr) {
+            break;
+        }
+    }
+    // initialize neighbors
+    int p_2 = (idx+ring.size()-2) % ring.size();
+    int p_1 = (idx+ring.size()-1) % ring.size();
+    int n_1 = (idx+1) % ring.size();
+    int n_2 = (idx+2) % ring.size();
+
+    if (!initialized) {
+        haveReplicasOf.push_back(ring[p_2]);
+        haveReplicasOf.push_back(ring[p_1]);
+        hasMyReplicas.push_back(ring[n_1]);
+        hasMyReplicas.push_back(ring[n_2]);
+        initialized = true;
+    } else {
+        Node n1 = ring[n_1];
+        Node n2 = ring[n_2];
+        Node n3 = ring[p_1];
+        if (!(n1.nodeAddress == hasMyReplicas[0].nodeAddress)) {
+            // next node in the ring has failed
+            handleReplicate(ReplicaType::PRIMARY, n2);
+        } else if (!(n2.nodeAddress == hasMyReplicas[1].nodeAddress)) {
+            // next next node in the ring has failed
+            handleReplicate(ReplicaType::PRIMARY, n2);
+        } else if (!(n3.nodeAddress == haveReplicasOf[0].nodeAddress)) {
+            // previous node in the ring has failed
+            handleReplicate(ReplicaType::SECONDARY, n2);
+        } else {
+        }
+        // update tables
+        haveReplicasOf.clear();
+        hasMyReplicas.clear();
+        haveReplicasOf.push_back(ring[p_2]);
+        haveReplicasOf.push_back(ring[p_1]);
+        hasMyReplicas.push_back(ring[n_1]);
+        hasMyReplicas.push_back(ring[n_2]);
+    }
 }

@@ -134,7 +134,7 @@ private:
     void updateInflightTrans();
     // stabilization protocol
     void handleReplicate(ReplicaType repType, Node& toNode);
-    void handleReplicateUpdate(Message msg, vector<Node>& toNodes);
+    void handleReplicateUpdate(Message msg);
 
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
