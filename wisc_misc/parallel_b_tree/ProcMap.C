@@ -1,4 +1,3 @@
-
 #include <sys/unistd.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -19,158 +18,158 @@
 #error Platform is not supported. Only Linux and Solaris platforms are supported in this code.
 #endif
 
-#include "ProcMap.h" 
+#include "ProcMap.h"
 #include "fatals.h"
 
-ProcessorMap::ProcessorMap() { 
-  m_nProcs = 0;
-  m_p_nProcessor_Ids = NULL;
-
-  m_nProcs = DetermineNumberOfProcessors();
-  if( m_nProcs <= 0 ) {
-#ifdef OS_SOLARIS
-    fatal("sysconf() reports %i processors online.\n", m_nProcs );
-#endif
-#ifdef OS_LINUX
-    fatal("sched_getaffinity() reports empty processor mask.\n");
-#endif
-  }
-
-  m_p_nProcessor_Ids = new int[m_nProcs];
-  if(m_p_nProcessor_Ids == NULL ) {
-    fatal("new int[%i] returned NULL -- out of memory?\n", m_nProcs );
-  }
-
-  int i;
-  int n = 0;
-
-#ifdef OS_SOLARIS
-  int status;
-  for(i=0;n<m_nProcs && i<4096 ;i++) {
-    status = p_online(i,P_STATUS);
-    if(status==-1 && errno==EINVAL) continue;
-    
-    m_p_nProcessor_Ids[n] = i;
-    n++;
-  }
-
-#endif
-#ifdef OS_LINUX
-  cpu_set_t cpus;
-
-  // Returns number of processors available to process (based on affinity mask)
-  if( sched_getaffinity(0, sizeof(cpus), (cpu_set_t*) &cpus) < 0) {
-    fatal("sched_getaffinity() reports empty processor mask.\n" );
-  }
-
-  for (i = 0; n<m_nProcs && i < sizeof(cpus)*8; i++) {
-    if( CPU_ISSET( i, &cpus ) ) {
-      m_p_nProcessor_Ids[n] = i;
-      n++;
-    }
-  }
-
-#endif
-
-  if( n != m_nProcs ) {
-    fatal("Unable to find all processor numbers.\n" );
-  }
-
-} 
-
-ProcessorMap::~ProcessorMap() { 
-  if( m_p_nProcessor_Ids != NULL ) {
-    delete [] m_p_nProcessor_Ids;
+ProcessorMap::ProcessorMap() {
+    m_nProcs = 0;
     m_p_nProcessor_Ids = NULL;
-  }
-} 
 
-int ProcessorMap::LogicalToPhysical(int lproc) const { 
-  IntegrityCheck();
-  if( lproc < 0 || lproc >= m_nProcs ) {
-    fatal( "Logical processor number out of range: [%i,%i) (%i)",0,m_nProcs,lproc);
-  }
+    m_nProcs = DetermineNumberOfProcessors();
+    if( m_nProcs <= 0 ) {
+#ifdef OS_SOLARIS
+        fatal("sysconf() reports %i processors online.\n", m_nProcs );
+#endif
+#ifdef OS_LINUX
+        fatal("sched_getaffinity() reports empty processor mask.\n");
+#endif
+    }
 
-  return m_p_nProcessor_Ids[lproc];
-} 
+    m_p_nProcessor_Ids = new int[m_nProcs];
+    if(m_p_nProcessor_Ids == NULL ) {
+        fatal("new int[%i] returned NULL -- out of memory?\n", m_nProcs );
+    }
 
-int ProcessorMap::PhysicalToLogical(int pproc) const { 
-  IntegrityCheck();
+    int i;
+    int n = 0;
 
-  int i;
-  for(i=0;i<m_nProcs;i++) {
-    if( m_p_nProcessor_Ids[i] == pproc ) break;
-  }
+#ifdef OS_SOLARIS
+    int status;
+    for(i=0;n<m_nProcs && i<4096 ;i++) {
+        status = p_online(i,P_STATUS);
+        if(status==-1 && errno==EINVAL) continue;
 
-  if( i == m_nProcs ) {
-    fatal( "Physical processor number does not match any known physical processor numbers.");
-  }
+        m_p_nProcessor_Ids[n] = i;
+        n++;
+    }
 
-  return i;
-} 
+#endif
+#ifdef OS_LINUX
+    cpu_set_t cpus;
+
+    // Returns number of processors available to process (based on affinity mask)
+    if( sched_getaffinity(0, sizeof(cpus), (cpu_set_t*) &cpus) < 0) {
+        fatal("sched_getaffinity() reports empty processor mask.\n" );
+    }
+
+    for (i = 0; n<m_nProcs && i < sizeof(cpus)*8; i++) {
+        if( CPU_ISSET( i, &cpus ) ) {
+            m_p_nProcessor_Ids[n] = i;
+            n++;
+        }
+    }
+
+#endif
+
+    if( n != m_nProcs ) {
+        fatal("Unable to find all processor numbers.\n" );
+    }
+
+}
+
+ProcessorMap::~ProcessorMap() {
+    if( m_p_nProcessor_Ids != NULL ) {
+        delete [] m_p_nProcessor_Ids;
+        m_p_nProcessor_Ids = NULL;
+    }
+}
+
+int ProcessorMap::LogicalToPhysical(int lproc) const {
+    IntegrityCheck();
+    if( lproc < 0 || lproc >= m_nProcs ) {
+        fatal( "Logical processor number out of range: [%i,%i) (%i)",0,m_nProcs,lproc);
+    }
+
+    return m_p_nProcessor_Ids[lproc];
+}
+
+int ProcessorMap::PhysicalToLogical(int pproc) const {
+    IntegrityCheck();
+
+    int i;
+    for(i=0;i<m_nProcs;i++) {
+        if( m_p_nProcessor_Ids[i] == pproc ) break;
+    }
+
+    if( i == m_nProcs ) {
+        fatal( "Physical processor number does not match any known physical processor numbers.");
+    }
+
+    return i;
+}
 
 void ProcessorMap::IntegrityCheck( ) const {
-  if( m_nProcs == 0 || m_p_nProcessor_Ids == NULL ) {
-    fatal( "Processor Map not in a usable state." );
-  }
-} 
+    if( m_nProcs == 0 || m_p_nProcessor_Ids == NULL ) {
+        fatal( "Processor Map not in a usable state." );
+    }
+}
 
 /* Borrowed from the Phoenix MapReduce runtime */
 int ProcessorMap::DetermineNumberOfProcessors() {
-   int nProcs = 0;
+    int nProcs = 0;
 #ifdef OS_LINUX
-   cpu_set_t cpus;
-   
-   // Returns number of processors available to process (based on affinity mask)
-   if( sched_getaffinity(0, sizeof(cpus), (cpu_set_t*) &cpus) < 0) {
-     nProcs = -1;
-     CPU_ZERO( &cpus );
-   }
+    cpu_set_t cpus;
 
-   for (int i = 0; i < sizeof(cpus)*8; i++) {
-      if( CPU_ISSET( i, &cpus )) {
-        nProcs++;
-      }
-   }
+    // Returns number of processors available to process (based on affinity mask)
+    if( sched_getaffinity(0, sizeof(cpus), (cpu_set_t*) &cpus) < 0) {
+        nProcs = -1;
+        CPU_ZERO( &cpus );
+    }
+
+    for (int i = 0; i < sizeof(cpus)*8; i++) {
+        if( CPU_ISSET( i, &cpus )) {
+            nProcs++;
+        }
+    }
 #endif
 
 #ifdef OS_SOLARIS
-   nProcs = sysconf(_SC_NPROCESSORS_ONLN);
-   if( nProcs < 0 ) {
-     nProcs = -1;
-   }
+    nProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    if( nProcs < 0 ) {
+        nProcs = -1;
+    }
 #endif
 
-   return nProcs;
+    return nProcs;
 }
 
 void ProcessorMap::BindToPhysicalCPU( int pproc ) const {
-  /* Verify pproc is in the physical cpu array */
-  int lcpu = -1;
-  for( int i=0; i<m_nProcs;i++ ) {
-    if( m_p_nProcessor_Ids[i] == pproc ) {
-      lcpu = i;
-      break;
+    /* Verify pproc is in the physical cpu array */
+    int lcpu = -1;
+    for( int i=0; i<m_nProcs;i++ ) {
+        if( m_p_nProcessor_Ids[i] == pproc ) {
+            lcpu = i;
+            break;
+        }
     }
-  }
 
-  if( lcpu != -1 ) {
+    if( lcpu != -1 ) {
 #ifdef OS_SOLARIS
-    if( processor_bind(P_LWPID, P_MYID, pproc, NULL) < 0 ) {
-      fatal("Call to processor_bind() failed for physical CPU %i\n",pproc);
-    }
+        if( processor_bind(P_LWPID, P_MYID, pproc, NULL) < 0 ) {
+            fatal("Call to processor_bind() failed for physical CPU %i\n",pproc);
+        }
 #endif
 #ifdef OS_LINUX
-    cpu_set_t myProc;
-    CPU_ZERO( &myProc );
-    CPU_SET( pproc, &myProc );
+        cpu_set_t myProc;
+        CPU_ZERO( &myProc );
+        CPU_SET( pproc, &myProc );
 
-    if( sched_setaffinity(0, sizeof(myProc), &myProc) < 0 ) {
-      fatal("Call to sched_setaffinity() failed for physical CPU %i\n",pproc);
-    }
+        if( sched_setaffinity(0, sizeof(myProc), &myProc) < 0 ) {
+            fatal("Call to sched_setaffinity() failed for physical CPU %i\n",pproc);
+        }
 #endif
-  } else {
-    fatal("Failed to bind to processor %i\n -- Processor does not exist!",pproc );
-  }
+    } else {
+        fatal("Failed to bind to processor %i\n -- Processor does not exist!",pproc );
+    }
 }
 

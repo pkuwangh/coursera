@@ -6,17 +6,17 @@
 
 /* C++ object-oriented barriers -- use Barrier.C */
 class PThreadLockCVBarrier {
-public:
-  PThreadLockCVBarrier( int nThreads ); 
-  ~PThreadLockCVBarrier();
+  public:
+    PThreadLockCVBarrier( int nThreads );
+    ~PThreadLockCVBarrier();
 
-  void Arrive();
+    void Arrive();
 
-private:
-  int m_nThreads;
-  std::mutex m_l_SyncLock;
-  std::condition_variable m_cv_SyncCV;
-  int m_nSyncCount;
+  private:
+    int m_nThreads;
+    std::mutex m_l_SyncLock;
+    std::condition_variable m_cv_SyncCV;
+    int m_nSyncCount;
 };
 
 #else // #ifdef __cplusplus
