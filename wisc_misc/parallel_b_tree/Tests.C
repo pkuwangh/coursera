@@ -16,18 +16,18 @@ fill_vector_random(vector<int> &ints, int n_elem)
 {
     ints.resize(n_elem, NOT_IN_TREE);
 
-    cout << "Filling ints vector..." << flush;
+    //cout << "Filling ints vector..." << flush;
     for(int i=0;i<n_elem;i++) {
         ints[i] = i;
     }
-    cout << "Randomizing..." << flush;
+    //cout << "Randomizing..." << flush;
     for(int i=0;i<n_elem;i++) {
         int a = rand() % n_elem;
         int temp = ints[a];
         ints[a] = ints[i];
         ints[i] = temp;
     }
-    cout << "Verifying contents..." << flush;
+    //cout << "Verifying contents..." << flush;
     vector<bool> ints_present;
     ints_present.resize(n_elem, false);
     for (int i = 0; i<n_elem; i++) {
@@ -36,7 +36,7 @@ fill_vector_random(vector<int> &ints, int n_elem)
     for (int i = 0; i<n_elem; i++) {
         if (!ints_present[i]) return false;
     }
-    cout << "All ints present." << endl << flush;
+    //cout << "All ints present." << endl << flush;
     return true;
 }
 
@@ -132,7 +132,7 @@ bool testTreeParallel( ConcurrentTree * p_tree, int tid, int nThreads, PThreadLo
 
     barrier.Arrive();
     if( tid == 0 ) {
-        cout << "Loading tree (multi-threaded)..." << flush;
+        //cout << "Loading tree (multi-threaded)..." << flush;
     }
     barrier.Arrive();
 
@@ -144,7 +144,7 @@ bool testTreeParallel( ConcurrentTree * p_tree, int tid, int nThreads, PThreadLo
 
     barrier.Arrive();
     if( tid == 0 ) {
-        cout << "Loaded." << endl << flush;
+        //cout << "Loaded." << endl << flush;
         cout << "Verifying (single-threaded)..." << flush;
         for(int i=0;i<NUM_ELEMENTS;i++) {
             if (!verify_elt(-1, p_tree, ints[i], i)) {
@@ -285,7 +285,7 @@ bool testTreeTransactional( ConcurrentTree * p_tree, int tid, int nThreads, PThr
         testingLock.lock();
         transactions_completed++;
         // Uncomment this if you're paranoid about forward progress
-        if( transactions_completed % 50 == 0 ) cout << "Thread " << tid << " completed transaction " << transactions_completed << endl;
+        if( transactions_completed % 200 == 0 ) cout << "Thread " << tid << " completed transaction " << transactions_completed << endl;
         testingLock.unlock();
         INCREMENT_STAT( nCommits );
     }
@@ -344,9 +344,9 @@ bool testTreeThroughput( ConcurrentTree * p_tree, int tid, int nThreads,
 
     /* Load the tree... do this part serially for maximum speed */
     if( tid == 0 ) {
-        cout << "Loading the tree for throughput tests..." << flush;
+        //cout << "Loading the tree for throughput tests..." << flush;
         loadTreeRange( p_tree, 0, NUM_ELEMENTS_THROUGHPUT );
-        cout << "Done. " << endl << flush;
+        //cout << "Done. " << endl << flush;
 
         gettimeofday( &starttime, NULL );
     }
@@ -387,7 +387,7 @@ bool testTreeThroughput( ConcurrentTree * p_tree, int tid, int nThreads,
         testingLock.lock();
         transactions_completed++;
         // Uncomment this if you're paranoid about forward progress
-        if( transactions_completed % 50 == 0 ) cout << "Thread " << tid << " completed transaction " << transactions_completed << endl;
+        if( transactions_completed % 200 == 0 ) cout << "Thread " << tid << " completed transaction " << transactions_completed << endl;
         testingLock.unlock();
         INCREMENT_STAT( nCommits );
         usleep( INTER_TRANSACTION_SLEEP_TIME );

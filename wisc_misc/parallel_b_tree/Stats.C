@@ -46,21 +46,19 @@ void clearStats() {
 
 void printStats() {
 
-    cout << "TOTAL COMMITS: " << nCommits << endl;
+    cout << "TOTAL COMMITS: " << nCommits << endl << "\t";
+    cout << "  Scan=" << nScans;
+    cout << "  Update=" << nUpdates;
+    cout << "  Lookup=" << nLookups;
+    cout << "  C-Add=" << nCAdds;
+    cout << "  C-Remove=" << nCRemoves;
     cout << endl;
-    cout << "    Scans: " << nScans << endl;
-    cout << "  Updates: " << nUpdates << endl;
-    cout << "  Lookups: " << nLookups << endl;
-    cout << "   C-Adds: " << nCAdds << endl;
-    cout << "C-Removes: " << nCRemoves << endl;
-    cout << endl;
-    cout << "Aborts: " << nAborts << endl;
-    cout << "Aborts By Type: " << endl;
-    cout << "      Scan: " << nScanAborts << endl;
-    cout << "    Update: " << nUpdateAborts << endl;
-    cout << "    Lookup: " << nLookupAborts << endl;
-    cout << "     C-Add: " << nCAddAborts << endl;
-    cout << "  C-Remove: " << nCRemoveAborts << endl;
+    cout << "Aborts=" << nAborts << endl << "\t";
+    cout << "  Scan=" << nScanAborts;
+    cout << "  Update=" << nUpdateAborts;
+    cout << "  Lookup=" << nLookupAborts;
+    cout << "  C-Add=" << nCAddAborts;
+    cout << "  C-Remove=" << nCRemoveAborts << endl;
     cout << endl;
 
     long long start_usecs   = starttime.tv_sec * 1000000 + starttime.tv_usec;

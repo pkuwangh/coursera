@@ -23,30 +23,22 @@ int ConcurrentTreeNode::Lookup( int key ) {
     int data = NOT_IN_TREE;
 
     if( key == m_key ) {
-
         data = m_data;
-
     } else if( key < m_key ) {
-
         if( m_p_left != NULL ) {
             data = m_p_left->Lookup( key );
         }
-
     } else {
-
-        /* key > m_key */
+        // key > m_key
         if( m_p_right != NULL ) {
             data = m_p_right->Lookup( key );
         }
-
     }
-
     return data;
-
 }
 
 void ConcurrentTreeNode::Remove( int key ) {
-    /* We know that we will NOT be removing THIS node (but key could equal m_key) */
+    // We know that we will NOT be removing THIS node (but key could equal m_key)
 
     if( m_p_left == NULL && m_p_right == NULL ) return; // no children
     if( key < m_key && m_p_left  == NULL )      return; // no node exists w/ m_key == key
@@ -144,12 +136,9 @@ void ConcurrentTreeNode::Remove( int key ) {
 
 void ConcurrentTreeNode::Set( int key, int data ) {
     if( key == m_key ) {
-
         /* Make this SET behaviour */
         m_data = data;
-
     } else if( key < m_key ) {
-
         if( m_p_left == NULL ) {
             m_p_left = new ConcurrentTreeNode();
             m_p_left->m_key  = key;
@@ -157,9 +146,7 @@ void ConcurrentTreeNode::Set( int key, int data ) {
         } else {
             m_p_left->Set( key, data );
         }
-
     } else {
-
         /* key > m_key */
         if( m_p_right == NULL ) {
             m_p_right = new ConcurrentTreeNode();
@@ -168,9 +155,7 @@ void ConcurrentTreeNode::Set( int key, int data ) {
         } else {
             m_p_right->Set( key, data );
         }
-
     }
-
 }
 
 ConcurrentTreeNode* ConcurrentTreeNode::MaxKey() {
@@ -203,6 +188,8 @@ void ConcurrentTreeNode::print( ostream &out, int indent ) {
     }
 }
 
+////////////////////////////////////////////////////////////////
+
 ConcurrentTree::ConcurrentTree( int max_threads ) {
     p_root = NULL;
     m_nThreads = max_threads;
@@ -215,7 +202,6 @@ ConcurrentTree::~ConcurrentTree() {
     if( p_root != NULL ) {
         delete p_root;
     }
-
     p_root = NULL;
 }
 
@@ -316,6 +302,8 @@ void ConcurrentTree::print( ostream &out ) {
     if( p_root == NULL ) out << "NULL" << endl;
     else                 p_root->print( out, 0 );
 }
+
+////////////////////////////////////////////////////////////////
 
 void ConcurrentTree::InitiateTransaction() {
     AcquireTransactionalLock();

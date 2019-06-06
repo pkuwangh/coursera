@@ -7,6 +7,7 @@
 #include "Stats.h"
 
 #include <iostream>
+#include <string>
 #include <cassert>
 #include <iomanip>
 #include <thread>
@@ -140,11 +141,19 @@ int main( int argc, char * argv[] ) {
 
     int procs =  p_map->NumberOfProcessors();
     cout << "This machine has " << procs << " processors online. Their numbers are:" << endl;
-    cout << setw(20) << "Logical Processor #" << "  Physical Processor #" << endl;
+    //cout << setw(20) << "Logical Processor #" << "  Physical Processor #" << endl;
 
-    for( int i=0;i<procs;i++) {
-        cout << setw(20) << i << setw(20) << p_map->LogicalToPhysical(i) << setw(0) << endl;
+    if (argc > 1) {
+        int num_procs_limit = std::stoi(argv[1]);
+        if (num_procs_limit < procs) {
+            procs = num_procs_limit;
+            cout << "Using " << procs << " processors for testing" << endl;
+        }
     }
+
+    //for( int i=0;i<procs;i++) {
+    //    cout << setw(20) << i << setw(20) << p_map->LogicalToPhysical(i) << setw(0) << endl;
+    //}
 
     cout << endl;
     if( NUM_ELEMENTS % procs ) {
@@ -160,7 +169,7 @@ int main( int argc, char * argv[] ) {
     PThreadLockCVBarrier * barrier = new PThreadLockCVBarrier( procs );
 
     int seed = time(NULL);
-    cout << "Random seed is: " << seed << endl;
+    //cout << "Random seed is: " << seed << endl;
 
 
     for(thread_number=0;thread_number<procs;thread_number++) {
