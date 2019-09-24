@@ -53,7 +53,8 @@ OBJDUMP := objdump
 ################################################################################
 
 # If the makefile can't find QEMU, specify its path here
-#QEMU :=
+#QEMU := /usr/bin/qemu-system-x86_64
+QEMU := /usr/bin/qemu-system-i386
 
 # Try to infer the correct QEMU if not specified
 ifndef QEMU
@@ -83,7 +84,8 @@ ifndef CPUS
 CPUS := 2
 endif
 
-QEMUOPTS := -hdb fs.img xv6.img -smp $(CPUS)
+#QEMUOPTS := -hdb fs.img xv6.img -smp $(CPUS)
+QEMUOPTS := -drive file=xv6.img,format=raw,index=0,media=disk -drive file=fs.img,format=raw,index=1,media=disk -smp $(CPUS)
 
 ################################################################################
 # Main Targets
@@ -101,7 +103,8 @@ CLEAN := $(KERNEL_CLEAN) $(USER_CLEAN) $(TOOLS_CLEAN) \
 clean:
 	rm -rf $(CLEAN)
 
-run: qemu
+run: qemu-nox
+debug: qemu-nox-gdb
 
 # run xv6 in qemu
 qemu: fs.img xv6.img
