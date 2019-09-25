@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "sysfunc.h"
 
+int sys_counter = 0;
+
 int
 sys_fork(void)
 {
@@ -87,4 +89,16 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// a simple counter to demonstrate adding syscall
+int
+sys_addnum(void)
+{
+    int n;
+
+    if(argint(0, &n) < 0)
+        return -1;
+    sys_counter += n;
+    return sys_counter;
 }

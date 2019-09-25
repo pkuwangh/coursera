@@ -12,6 +12,7 @@ USER_PROGS := \
 	mkdir\
 	rm\
 	sh\
+	test_addnum\
 	stressfs\
 	tester\
 	usertests\
