@@ -88,3 +88,23 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// scheduler-related
+int
+sys_reserve(void)
+{
+    return 0;
+}
+
+int
+sys_spot(void)
+{
+    return 0;
+}
+
+int
+sys_getpinfo(void)
+{
+    return 0;
+}
+

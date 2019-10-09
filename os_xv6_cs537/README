@@ -1,0 +1,30 @@
+p1
+adding a syscall
+  * write syscall number into eax, then call "int T_SYSCALL"
+  * hardware & trapasm.S build a trap frame on the stack, and pass to trap()
+  * based on interrupt number, call syscall()
+  * based on syscall number in eax, call the corresponding handler and write return code back to eax
+
+p2
+scheduler in cloud environment
+  * requirement
+    - cloud services like AWS EC2 supports two pricing schemes: reserved process & spot process
+    - level-1 is for reserved processes, uses lottery scheduling, and receives priority over level-2
+    - level-2 is for spot processes, and only uses CPU resources that left over from level-1
+  * details
+    - 3 system calls are needed:
+      > "int reserve(int percent)" marks a process as a reserved process, and guarantees the given
+        portion of CPU time; reserved processes pay 100 nanodollars per ms of CPU time reserved.
+      > "int spot(int bid)" marks a process for spot computing; the bid is in nanodollars per ms of
+        CPU time.
+      > "int getpinfo(struct pstat *)" returns some basic info about each active process, including
+        its process ID, how many times it has been chosen to run, how much time it has run (ms), how
+        much it has been charged (microdollars). This syscall call can be used to build a variant of
+        the command line program ps.
+  * hints
+    - most of the code for scheduler is localized in proc.c;
+    - understand how to fill in the structure pstat in the kernel & pass results to user space;
+    - Uptime is tracked w/ ms granularity in the ticks variable in trap.c; here simply assume 10ms;
+    - what if there are only reserved processes and their reservations don't add up to 200%?
+    - lotteries should be held independently on each core;
+    - processes default to being 0-bid spot processes may never get a chance to set its reservation.
