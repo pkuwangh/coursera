@@ -122,7 +122,7 @@ void update_bid(int p_idx, int upgrade) {
     } else {
         // moving right
         for (j = i; j < NPROC-1; ++j) {
-            if (picker.bid_idx[j+1] >= 0 && get_bid(j) < get_bid(j+1)) {
+            if (picker.bid_idx[j+1] >= 0 && get_bid(j) <= get_bid(j+1)) {
                 swap(&picker.bid_idx[j], &picker.bid_idx[j+1]);
             }
         }
@@ -430,6 +430,8 @@ scheduler(void)
 {
   struct proc *p;
   int found;
+  int starve_count1 = 0;
+  int starve_count2 = 0;
 
   for(;;){
     // infinite loop never returns
@@ -445,7 +447,7 @@ scheduler(void)
     // level-1: lottery scheduling
     const int num = rand_int();
     const int ptable_idx = picker.rsv_idx[num];
-    if (ptable_idx >= 0) {
+    if (ptable_idx >= 0 && starve_count1 < 100 && starve_count2 < 100) {
         p = &ptable.proc[ptable_idx];
         if (p->state == RUNNABLE) {
             //cprintf("pick from reserve pool idx=%d pid=%d percent=%d bid=%d rand_num=%d\n",
@@ -454,7 +456,7 @@ scheduler(void)
         }
     }
     // level-2: give highest bidder
-    if (!found) {
+    if (!found && starve_count2 < 100) {
         for (int i = 0; i < NPROC; ++i) {
             const int idx = picker.bid_idx[i];
             if (idx >= 0) {
@@ -471,13 +473,13 @@ scheduler(void)
     // step 3: if no bidder, try not losing this slot
     if (!found) {
         for (int i = 0; i < NPROC; ++i) {
-            const int idx = (picker.rr_ptr + i) % NPROC;
+            int idx = (picker.rr_ptr + i) % NPROC;
             p = &ptable.proc[idx];
             if (p->state == RUNNABLE) {
                 //cprintf("pick from leftover idx=%d pid=%d percent=%d bid=%d rand_num=%d\n",
                 //        idx, p->pid, p->percent, p->bid, num);
                 found = 3;
-                picker.rr_ptr = (i+1) % NPROC; // advance the round-robin pointer
+                picker.rr_ptr = (picker.rr_ptr+1) % NPROC; // advance the round-robin pointer
                 break;
             }
         }
@@ -495,6 +497,35 @@ scheduler(void)
           if (p->charge_nano > 1000) {
               p->charge_micro += 1;
               p->charge_nano -= 1000;
+          }
+      }
+      // handle the case that multiple processes having same bid value
+      if (found == 2) {
+        update_bid(p->ptable_idx, 0);
+      }
+      // handle starvation
+      if (found == 1) {
+          starve_count1 += 1;
+          if (starve_count1 > 100) {
+              starve_count1 = 100;
+          }
+          starve_count2 += 1;
+          if (starve_count2 > 100) {
+              starve_count2 = 100;
+          }
+      } else if (found == 2) {
+          starve_count1 -= 20;
+          if (starve_count1 < 0) {
+              starve_count1 = 0;
+          }
+          starve_count2 += 1;
+          if (starve_count2 > 100) {
+              starve_count2 = 100;
+          }
+      } else {
+          starve_count2 -= 50;
+          if (starve_count2 < 0) {
+              starve_count2 = 0;
           }
       }
 
