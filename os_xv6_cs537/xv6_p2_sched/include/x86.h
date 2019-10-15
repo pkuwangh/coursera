@@ -201,7 +201,7 @@ struct trapframe {
 
   // below here defined by x86 hardware
   uint err;
-  uint eip;
+  uint eip; // extended instruction pointer, i.e. PC
   ushort cs;
   ushort padding5;
   uint eflags;

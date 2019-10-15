@@ -21,6 +21,7 @@ main(int argc, char *argv[])
         //SAME PERCENT RESERVE
 
         //Make this reserve 50
+        printf(1, "reserve-ing 50 for main thread tid=%d uptime=%d\n", getpid(), uptime());
         int returnval = reserve(50);
         if(returnval < 0) {
             printf(1, "ERROR: reserve failed\n");
@@ -32,6 +33,8 @@ main(int argc, char *argv[])
         int chosen[NUM_PROC+1];
         int time[NUM_PROC+1];
         int charge[NUM_PROC+1];
+        int s_percent[NUM_PROC+1];
+        int s_bid[NUM_PROC+1];
         int i;
         int pid;
         pids[0] = getpid();
@@ -39,6 +42,7 @@ main(int argc, char *argv[])
             pid = fork();
             if(pid == 0) {
                 //child
+                printf(1, "reserve-ing 50 on %d-th thread tid=%d uptime=%d\n", i, getpid(), uptime());
                 returnval = reserve(50);
                 if(returnval < 0) {
                     printf(1, "ERROR: reserve failed\n");
@@ -52,12 +56,15 @@ main(int argc, char *argv[])
         }
         if(pid == 0) {
             sleep(CHILD_STARTUP_SLEEP*2);
+            printf(1, "thread tid=%d startup uptime=%d\n", getpid(), uptime());
             while(1) {
             }
         }
         else {
+            // parent process
             while(1) {
                 sleep(MIN_UPTIME);
+                printf(1, "main thread tid=%d checking uptime=%d\n", getpid(), uptime());
                 struct pstat p;
                 struct pstat *stats = &p;
                 int returnval = getpinfo(stats);
@@ -72,13 +79,17 @@ main(int argc, char *argv[])
                             chosen[j] = stats->chosen[i];
                             time[j] = stats->time[i];
                             charge[j] = stats->charge[i];
+                            s_percent[j] = stats->percent[i];
+                            s_bid[j] = stats->bid[i];
                             count++;
                         }
                     }
                 }
+                printf(1, "pid\tpercent\tbid\tchosen\ttime\tcharge\n");
                 for(i=0; i<NUM_PROC+1; i++) {
-                    //pid,chosen,time,charge
-                    printf(1, "%d,%d,%d,%d\n", pids[i], chosen[i], time[i], charge[i]);
+                    //pid,percent, bid,chosen,time,charge
+                    printf(1, "%d,\t%d,\t%d,\t%d,\t%d,\t%d\n",
+                            pids[i], s_percent[i], s_bid[i], chosen[i], time[i], charge[i]);
                 }
             }
         }
@@ -99,6 +110,8 @@ main(int argc, char *argv[])
         int chosen[NUM_PROC+1];
         int time[NUM_PROC+1];
         int charge[NUM_PROC+1];
+        int s_percent[NUM_PROC+1];
+        int s_bid[NUM_PROC+1];
         int i;
         int pid;
         int bid = 20;
@@ -146,13 +159,17 @@ main(int argc, char *argv[])
                             chosen[j] = stats->chosen[i];
                             time[j] = stats->time[i];
                             charge[j] = stats->charge[i];
+                            s_percent[j] = stats->percent[i];
+                            s_bid[j] = stats->bid[i];
                             count++;
                         }
                     }
                 }
+                printf(1, "pid\tpercent\tbid\tchosen\ttime\tcharge\n");
                 for(i=0; i<NUM_PROC+1; i++) {
-                    //pid,chosen,time,charge
-                    printf(1, "%d,%d,%d,%d\n", pids[i], chosen[i], time[i], charge[i]);
+                    //pid,percent, bid,chosen,time,charge
+                    printf(1, "%d,\t%d,\t%d,\t%d,\t%d,\t%d\n",
+                            pids[i], s_percent[i], s_bid[i], chosen[i], time[i], charge[i]);
                 }
             }
         }
@@ -173,6 +190,8 @@ main(int argc, char *argv[])
         int chosen[NUM_PROC+1];
         int time[NUM_PROC+1];
         int charge[NUM_PROC+1];
+        int s_percent[NUM_PROC+1];
+        int s_bid[NUM_PROC+1];
         int i;
         int pid;
         int percent = 20;
@@ -220,14 +239,17 @@ main(int argc, char *argv[])
                             chosen[j] = stats->chosen[i];
                             time[j] = stats->time[i];
                             charge[j] = stats->charge[i];
+                            s_percent[j] = stats->percent[i];
+                            s_bid[j] = stats->bid[i];
                             count++;
                         }
                     }
                 }
-                printf(1, "\n");
+                printf(1, "pid\tpercent\tbid\tchosen\ttime\tcharge\n");
                 for(i=0; i<NUM_PROC+1; i++) {
-                    //pid,chosen,time,charge
-                    printf(1, "pid: %d, chosen: %d, time: %d, charge: %d\n", pids[i], chosen[i], time[i], charge[i]);
+                    //pid,percent, bid,chosen,time,charge
+                    printf(1, "%d,\t%d,\t%d,\t%d,\t%d,\t%d\n",
+                            pids[i], s_percent[i], s_bid[i], chosen[i], time[i], charge[i]);
                 }
             }
         }
@@ -367,6 +389,8 @@ main(int argc, char *argv[])
         int chosen[NUM_PROC+1];
         int time[NUM_PROC+1];
         int charge[NUM_PROC+1];
+        int s_percent[NUM_PROC+1];
+        int s_bid[NUM_PROC+1];
         int i;
         int pid;
         pids[0] = getpid();
@@ -417,13 +441,17 @@ main(int argc, char *argv[])
                             chosen[j] = stats->chosen[i];
                             time[j] = stats->time[i];
                             charge[j] = stats->charge[i];
+                            s_percent[j] = stats->percent[i];
+                            s_bid[j] = stats->bid[i];
                             count++;
                         }
                     }
                 }
+                printf(1, "pid\tpercent\tbid\tchosen\ttime\tcharge\n");
                 for(i=0; i<NUM_PROC+1; i++) {
-                    //pid,chosen,time,charge
-                    printf(1, "%d,%d,%d,%d\n", pids[i], chosen[i], time[i], charge[i]);
+                    //pid,percent, bid,chosen,time,charge
+                    printf(1, "%d,\t%d,\t%d,\t%d,\t%d,\t%d\n",
+                            pids[i], s_percent[i], s_bid[i], chosen[i], time[i], charge[i]);
                 }
             }
         }

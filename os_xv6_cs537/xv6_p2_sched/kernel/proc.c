@@ -5,6 +5,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -19,10 +20,158 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+// two-level scheduler
+struct two_level_picker {
+    struct spinlock lock;
+    int rsv_idx[200];       // mark pid based on tickets
+    int total_percent;
+    int bid_idx[NPROC];     // a sorted list of bidders
+    int rr_ptr;
+} picker;
+
+// helper functions
+void reset_sched_info(struct proc *p) {
+    p->percent = 0;
+    p->bid = -1;
+    p->chosen = 0;
+    p->time = 0;
+    p->charge_micro = 0;
+    p->charge_nano = 0;
+}
+
+int rand_int(void) {
+    static uint seed = 100;
+    // linear congurential generator
+    const uint a = 1103515245;  // param from glibc
+    const uint c = 12345;
+    seed = (a * seed + c) % ((uint)(1) << 30);
+//    const uint a = 1664525;
+//    const uint c = 1013904223;
+//    seed = (a * seed + c);
+    return (seed % 200);
+}
+
+void swap(int *e1, int *e2) {
+    int temp = *e1;
+    *e1 = *e2;
+    *e2 = temp;
+}
+
+int get_bid(int idx) {
+    return ptable.proc[picker.bid_idx[idx]].bid;
+}
+
+void check_bid_array() {
+    for (int i = 0; i < NPROC; ++i) {
+        if (picker.bid_idx[i] >= 0) {
+            cprintf("%d  ", get_bid(i));
+        }
+    }
+    cprintf("\n");
+}
+
+// book keeping
+void picker_init(void) {
+    initlock(&picker.lock, "picker");
+    for (int i = 0; i < 200; ++i) {
+        picker.rsv_idx[i] = -1;
+    }
+    picker.total_percent = 0;
+    for (int i = 0; i < NPROC; ++i) {
+        picker.bid_idx[i] = -1;
+    }
+    picker.rr_ptr = 0;
+}
+
+void add_new_bid(int p_idx) {
+    // default w/ bid=0
+    if (ptable.proc[p_idx].bid < 0) panic("invalid bid value");
+    // insert to first invalid position and then swap left
+    int i = 0, j = 0;
+    for (i = 0; i < NPROC; ++i) {
+        if (picker.bid_idx[i] < 0) {
+            break;
+        }
+    }
+    if (i == NPROC) panic("too many processes");
+    picker.bid_idx[i] = p_idx;
+    for (j = i; j > 0; --j) {
+        if (get_bid(j) > get_bid(j-1)) {
+            swap(&picker.bid_idx[j], &picker.bid_idx[j-1]);
+        }
+    }
+}
+
+void update_bid(int p_idx, int upgrade) {
+    if (ptable.proc[p_idx].bid < 0) panic("invalid bid value");
+    // sort it
+    int i = 0, j = 0;
+    for (i = 0; i < NPROC; ++i) {
+        if (p_idx == picker.bid_idx[i]) {
+            break;
+        }
+    }
+    if (i == NPROC) panic("cannot find the process to update bid value");
+    if (upgrade > 0) {
+        // moving left
+        for (j = i; j > 0; --j) {
+            if (get_bid(j) > get_bid(j-1)) {
+                swap(&picker.bid_idx[j], &picker.bid_idx[j-1]);
+            }
+        }
+    } else {
+        // moving right
+        for (j = i; j < NPROC-1; ++j) {
+            if (picker.bid_idx[j+1] >= 0 && get_bid(j) < get_bid(j+1)) {
+                swap(&picker.bid_idx[j], &picker.bid_idx[j+1]);
+            }
+        }
+    }
+}
+
+void remove_bid(int p_idx) {
+    if (ptable.proc[p_idx].bid >= 0) panic("invalid bid value");
+    // reset the postion to then swap right
+    int i = 0, j = 0;
+    for (i = 0; i < NPROC; ++i) {
+        if (p_idx == picker.bid_idx[i]) {
+            break;
+        }
+    }
+    if (i == NPROC) panic("cannot find the process to remove bid value");
+    picker.bid_idx[i] = -1;   // reset
+    for (j = i; j < NPROC-1; ++j) {
+        if (picker.bid_idx[j+1] >= 0) {
+            swap(&picker.bid_idx[j], &picker.bid_idx[j+1]);
+        }
+    }
+}
+
+void update_reserve() {
+    int i = 0, j = 0, k = 0;
+    // re-calculate
+    picker.total_percent = 0;
+    for (i = 0; i < NPROC; ++i) {
+        if (ptable.proc[i].percent > 0) {
+            picker.total_percent += ptable.proc[i].percent;
+            for (j = 0; j < ptable.proc[i].percent; ++j) {
+                picker.rsv_idx[k] = i;
+                ++k;
+            }
+        }
+    }
+}
+
 void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  struct proc *p;
+  int idx;
+  for(p = ptable.proc, idx = 0; p < &ptable.proc[NPROC]; p++, idx++) {
+      p->ptable_idx = idx;
+  }
+  picker_init();
 }
 
 // Look in the process table for an UNUSED proc.
@@ -32,11 +181,12 @@ pinit(void)
 static struct proc*
 allocproc(void)
 {
+  int idx;
   struct proc *p;
   char *sp;
 
   acquire(&ptable.lock);
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for(p = ptable.proc, idx = 0; p < &ptable.proc[NPROC]; p++, idx++)
     if(p->state == UNUSED)
       goto found;
   release(&ptable.lock);
@@ -66,7 +216,14 @@ found:
   sp -= sizeof *p->context;
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
-  p->context->eip = (uint)forkret;
+  p->context->eip = (uint)forkret;  // set PC to entry point of forkret
+
+  // by default, new process has a bid of 0
+  acquire(&picker.lock);
+  reset_sched_info(p);
+  p->bid = 0;
+  add_new_bid(idx);
+  release(&picker.lock);
 
   return p;
 }
@@ -98,6 +255,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  // TODO: should this be special and have a high bid value?
   release(&ptable.lock);
 }
 
@@ -139,11 +297,15 @@ fork(void)
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
+    // just called allocproc, need cleanup
+    acquire(&picker.lock);
+    remove_bid(np->ptable_idx);
+    release(&picker.lock);
     return -1;
   }
   np->sz = proc->sz;
   np->parent = proc;
-  *np->tf = *proc->tf;
+  *np->tf = *proc->tf;  // trap frame include eip, i.e. PC is set to the same as parent
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -179,7 +341,7 @@ exit(void)
     }
   }
 
-  iput(proc->cwd);
+  iput(proc->cwd);  // drop pointer reference to inode
   proc->cwd = 0;
 
   acquire(&ptable.lock);
@@ -190,7 +352,7 @@ exit(void)
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
-      p->parent = initproc;
+      p->parent = initproc;   // that's why we do not expect initproc to exit
       if(p->state == ZOMBIE)
         wakeup1(initproc);
     }
@@ -198,6 +360,16 @@ exit(void)
 
   // Jump into the scheduler, never to return.
   proc->state = ZOMBIE;
+  // cleanup on exit
+  acquire(&picker.lock);
+  if (proc->percent > 0) {
+      proc->percent = 0;
+      update_reserve();
+  } else {
+      proc->bid = -1;
+      remove_bid(proc->ptable_idx);
+  }
+  release(&picker.lock);
   sched();
   panic("zombie exit");
 }
@@ -221,7 +393,7 @@ wait(void)
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
-        kfree(p->kstack);
+        kfree(p->kstack); // each thread/process has its kernel stack
         p->kstack = 0;
         freevm(p->pgdir);
         p->state = UNUSED;
@@ -229,6 +401,7 @@ wait(void)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
+        reset_sched_info(p);
         release(&ptable.lock);
         return pid;
       }
@@ -242,7 +415,7 @@ wait(void)
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(proc, &ptable.lock);  //DOC: wait-sleep
-  }
+  } // infinite loop
 }
 
 // Per-CPU process scheduler.
@@ -256,16 +429,74 @@ void
 scheduler(void)
 {
   struct proc *p;
+  int found;
 
   for(;;){
+    // infinite loop never returns
+
     // Enable interrupts on this processor.
     sti();
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    acquire(&picker.lock);
+
+    found = 0;
+    // level-1: lottery scheduling
+    const int num = rand_int();
+    const int ptable_idx = picker.rsv_idx[num];
+    if (ptable_idx >= 0) {
+        p = &ptable.proc[ptable_idx];
+        if (p->state == RUNNABLE) {
+            //cprintf("pick from reserve pool idx=%d pid=%d percent=%d bid=%d rand_num=%d\n",
+            //        ptable_idx, p->pid, p->percent, p->bid, num);
+            found = 1;
+        }
+    }
+    // level-2: give highest bidder
+    if (!found) {
+        for (int i = 0; i < NPROC; ++i) {
+            const int idx = picker.bid_idx[i];
+            if (idx >= 0) {
+                p = &ptable.proc[idx];
+                if (p->state == RUNNABLE) {
+                    //cprintf("pick from bid pool idx=%d pid=%d percent=%d bid=%d rand_num=%d\n",
+                    //        idx, p->pid, p->percent, p->bid, num);
+                    found = 2;
+                    break;
+                }
+            }
+        }
+    }
+    // step 3: if no bidder, try not losing this slot
+    if (!found) {
+        for (int i = 0; i < NPROC; ++i) {
+            const int idx = (picker.rr_ptr + i) % NPROC;
+            p = &ptable.proc[idx];
+            if (p->state == RUNNABLE) {
+                //cprintf("pick from leftover idx=%d pid=%d percent=%d bid=%d rand_num=%d\n",
+                //        idx, p->pid, p->percent, p->bid, num);
+                found = 3;
+                picker.rr_ptr = (i+1) % NPROC; // advance the round-robin pointer
+                break;
+            }
+        }
+    }
+    release(&picker.lock);
+
+    if (found) {
+      // stats
+      p->chosen += 1;
+      p->time +=10;   // in ms, simple assumption here w/o e.g. IO
+      if (found == 1) {
+          p->charge_micro += 1; // i.e. 100 nanodollar per ms
+      } else if (found == 2) {
+          p->charge_nano += 25 * p->bid;
+          if (p->charge_nano > 1000) {
+              p->charge_micro += 1;
+              p->charge_nano -= 1000;
+          }
+      }
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -273,8 +504,8 @@ scheduler(void)
       proc = p;
       switchuvm(p);
       p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+      swtch(&cpu->scheduler, proc->context);  // (**old, *new)
+      switchkvm();  // back to kernel mode
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
@@ -301,7 +532,7 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
   intena = cpu->intena;
-  swtch(&proc->context, cpu->scheduler);
+  swtch(&proc->context, cpu->scheduler);  // enter scheduler; from exit, yield, sleep
   cpu->intena = intena;
 }
 
@@ -349,7 +580,7 @@ sleep(void *chan, struct spinlock *lk)
   }
 
   // Go to sleep.
-  proc->chan = chan;
+  proc->chan = chan;      // set the sleep condition
   proc->state = SLEEPING;
   sched();
 
@@ -395,7 +626,7 @@ kill(int pid)
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
-      p->killed = 1;
+      p->killed = 1;  // only mark killed here
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
@@ -405,6 +636,69 @@ kill(int pid)
   }
   release(&ptable.lock);
   return -1;
+}
+
+// APIs
+int proc_reserve(int percent) {
+    // do some sanity check
+    if (percent <= 0 || percent > 100) {
+        return -1;
+    }
+    acquire(&picker.lock);
+    if (picker.total_percent + percent > 200) {
+        release(&picker.lock);
+        return -1;
+    }
+    // proceed
+    proc->percent = percent;
+    proc->bid = -1;
+    update_reserve();
+    remove_bid(proc->ptable_idx);
+    release(&picker.lock);
+    return 0;
+}
+
+int proc_spot(int bid) {
+    // sanity checks
+    if (bid < 0) {
+        return -1;
+    }
+    acquire(&picker.lock);
+    if (proc->percent > 0) {
+        proc->percent = 0;
+        update_reserve();
+        proc->bid = bid;
+        add_new_bid(proc->ptable_idx);
+    } else {
+        const int upgrade = (bid > proc->bid) ? 1 : 0;
+        proc->bid = bid;
+        update_bid(proc->ptable_idx, upgrade);
+    }
+    release(&picker.lock);
+    return 0;
+}
+
+int proc_getpinfo(struct pstat *stat) {
+    for (int i = 0; i < NPROC; ++i) {
+        stat->inuse[i] = 0;
+        stat->pid[i] = 0;
+        stat->chosen[i] = 0;
+        stat->time[i] = 0;
+        stat->charge[i] = 0;
+        stat->percent[i] = 0;
+        stat->bid[i] = 0;
+        struct proc *p = &ptable.proc[i];
+        if (p->state > UNUSED) {
+            stat->inuse[i] = 1;
+            stat->pid[i] = p->pid;
+            stat->chosen[i] = p->chosen;
+            stat->time[i] = p->time;
+            stat->charge[i] = p->charge_micro;
+            stat->percent[i] = p->percent;
+            stat->bid[i] = p->bid;
+        }
+    }
+    return 0;
 }
 
 // Print a process listing to console.  For debugging.
@@ -426,6 +720,7 @@ procdump(void)
   char *state;
   uint pc[10];
   
+  acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
@@ -441,6 +736,7 @@ procdump(void)
     }
     cprintf("\n");
   }
+  release(&ptable.lock);
 }
 
 
