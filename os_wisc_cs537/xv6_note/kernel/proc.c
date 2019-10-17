@@ -66,7 +66,7 @@ found:
   sp -= sizeof *p->context;
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
-  p->context->eip = (uint)forkret;
+  p->context->eip = (uint)forkret;  // set PC to entry point of forkret
 
   return p;
 }
@@ -143,7 +143,7 @@ fork(void)
   }
   np->sz = proc->sz;
   np->parent = proc;
-  *np->tf = *proc->tf;
+  *np->tf = *proc->tf;  // trap frame include eip, i.e. PC is set to the same as parent
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -179,7 +179,7 @@ exit(void)
     }
   }
 
-  iput(proc->cwd);
+  iput(proc->cwd);  // drop pointer reference to inode
   proc->cwd = 0;
 
   acquire(&ptable.lock);
@@ -188,16 +188,17 @@ exit(void)
   wakeup1(proc->parent);
 
   // Pass abandoned children to init.
+  // not waiting for spawned processes, pass them to init process
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
-      p->parent = initproc;
+      p->parent = initproc;   // that's why we do not expect initproc to exit
       if(p->state == ZOMBIE)
         wakeup1(initproc);
     }
   }
 
   // Jump into the scheduler, never to return.
-  proc->state = ZOMBIE;
+  proc->state = ZOMBIE; // handle actual cleaning in parent's wait
   sched();
   panic("zombie exit");
 }
@@ -218,10 +219,11 @@ wait(void)
       if(p->parent != proc)
         continue;
       havekids = 1;
+      // actual exit happens here
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
-        kfree(p->kstack);
+        kfree(p->kstack); // each thread/process has its kernel stack
         p->kstack = 0;
         freevm(p->pgdir);
         p->state = UNUSED;
@@ -242,7 +244,7 @@ wait(void)
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(proc, &ptable.lock);  //DOC: wait-sleep
-  }
+  } // infinite loop
 }
 
 // Per-CPU process scheduler.
@@ -258,6 +260,7 @@ scheduler(void)
   struct proc *p;
 
   for(;;){
+    // infinite loop never returns
     // Enable interrupts on this processor.
     sti();
 
@@ -273,8 +276,8 @@ scheduler(void)
       proc = p;
       switchuvm(p);
       p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+      swtch(&cpu->scheduler, proc->context);  // (**old, *new)
+      switchkvm();  // back to kernel mode
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
@@ -301,7 +304,7 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
   intena = cpu->intena;
-  swtch(&proc->context, cpu->scheduler);
+  swtch(&proc->context, cpu->scheduler);  // enter scheduler; from exit, yield, sleep
   cpu->intena = intena;
 }
 
@@ -349,7 +352,7 @@ sleep(void *chan, struct spinlock *lk)
   }
 
   // Go to sleep.
-  proc->chan = chan;
+  proc->chan = chan;      // set the sleep condition
   proc->state = SLEEPING;
   sched();
 
@@ -395,7 +398,7 @@ kill(int pid)
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
-      p->killed = 1;
+      p->killed = 1;  // only mark killed here
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
